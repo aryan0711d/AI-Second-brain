@@ -9,6 +9,7 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 import os
 import requests
+import time
 from dotenv import load_dotenv
 from groq import Groq
 
@@ -32,18 +33,28 @@ app.add_middleware(
 
 
 def get_embedding(text: str) -> list:
-    response = requests.post(
-        HF_URL,
-        headers={"Authorization": f"Bearer {HF_TOKEN}"},
-        json={"inputs": text},
-        timeout=10,
-    )
+    for attempt in range(3):
+        response = requests.post(
+            HF_URL,
+            headers={"Authorization": f"Bearer {HF_TOKEN}"},
+            json={"inputs": text},
+            timeout=30,
+        )
 
-    data = response.json()
-    if isinstance(data, dict) and "error" in data:
-        raise Exception(f"Hugging Face API error: {data['error']}")
+        if response.status_code == 503:
+            time.sleep(3)
+            continue
 
-    return data[0] if isinstance(data[0], list) else data
+        data = response.json()
+        if isinstance(data, dict) and "error" in data:
+            if "loading" in data["error"].lower():
+                time.sleep(3)
+                continue
+            raise Exception(f"Hugging Face API error: {data['error']}")
+
+        return data[0] if isinstance(data[0], list) else data
+
+    raise Exception("Hugging Face model failed to load after retries")
 
 
 groq_key = os.getenv("GROQ_API_KEY")
