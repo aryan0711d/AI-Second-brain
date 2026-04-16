@@ -8,24 +8,42 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 import os
+import requests
 from dotenv import load_dotenv
 from groq import Groq
-from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
 app = FastAPI()
 
+HF_TOKEN = os.getenv("HF_TOKEN")
+HF_URL = "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2"
+
+if not HF_TOKEN:
+    raise ValueError("HF_TOKEN not found in .env")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-embedding_model = SentenceTransformer("paraphrase-MiniLM-L3-v2")
-if not embedding_model:
-    raise ValueError("Failed to load embedding model")
+
+def get_embedding(text: str) -> list:
+    response = requests.post(
+        HF_URL,
+        headers={"Authorization": f"Bearer {HF_TOKEN}"},
+        json={"inputs": text},
+        timeout=10,
+    )
+
+    data = response.json()
+    if isinstance(data, dict) and "error" in data:
+        raise Exception(f"Hugging Face API error: {data['error']}")
+
+    return data[0] if isinstance(data[0], list) else data
+
 
 groq_key = os.getenv("GROQ_API_KEY")
 if not groq_key:
@@ -126,7 +144,7 @@ def read_root():
 @app.post("/add-note")
 def add_note(note: Note, user_id: str = Depends(get_current_user)):
     try:
-        embedding = embedding_model.encode(note.content).tolist()
+        embedding = get_embedding(note.content)
         notes_collection.insert_one(
             {
                 "content": note.content,
@@ -142,7 +160,7 @@ def add_note(note: Note, user_id: str = Depends(get_current_user)):
 @app.post("/ask")
 def ask_question(q: Question, user_id: str = Depends(get_current_user)):
     try:
-        query_embedding = embedding_model.encode(q.question).tolist()
+        query_embedding = get_embedding(q.question)
 
         vector_results = list(
             notes_collection.aggregate(
