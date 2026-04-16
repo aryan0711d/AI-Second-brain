@@ -42,19 +42,24 @@ def get_embedding(text: str) -> list:
         )
 
         if response.status_code == 503:
-            time.sleep(3)
+            time.sleep(5)
+            continue
+
+        if not response.text.strip():
+            time.sleep(5)
             continue
 
         data = response.json()
+
         if isinstance(data, dict) and "error" in data:
             if "loading" in data["error"].lower():
-                time.sleep(3)
+                time.sleep(5)
                 continue
             raise Exception(f"Hugging Face API error: {data['error']}")
 
         return data[0] if isinstance(data[0], list) else data
 
-    raise Exception("Hugging Face model failed to load after retries")
+    raise Exception("Hugging Face model failed after 3 retries")
 
 
 groq_key = os.getenv("GROQ_API_KEY")
