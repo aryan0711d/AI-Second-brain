@@ -177,115 +177,13 @@ def add_note(note: Note, user_id: str = Depends(get_current_user)):
 @app.post("/ask")
 def ask_question(q: Question, user_id: str = Depends(get_current_user)):
     try:
-        query_embedding = get_embedding(q.question)
-
-        vector_results = list(
-            notes_collection.aggregate(
-                [
-                    {
-                        "$vectorSearch": {
-                            "index": "vector_index",
-                            "path": "embedding",
-                            "queryVector": query_embedding,
-                            "numCandidates": 100,
-                            "limit": 5,
-                        }
-                    },
-                    {"$match": {"user_id": user_id}},
-                ]
-            )
-        )
-
-        text_results = list(
-            notes_collection.find(
-                {"$text": {"$search": q.question}, "user_id": user_id},
-                {"score": {"$meta": "textScore"}},
-            )
-            .sort([("score", {"$meta": "textScore"})])
-            .limit(5)
-        )
-
-        combined = {}
-        for note in vector_results:
-            combined[note["_id"]] = {"content": note["content"], "score": 1.0}
-        for note in text_results:
-            if note["_id"] in combined:
-                combined[note["_id"]]["score"] += note.get("score", 0)
-            else:
-                combined[note["_id"]] = {
-                    "content": note["content"],
-                    "score": note.get("score", 0),
-                }
-
-        sorted_notes = sorted(combined.values(), key=lambda x: x["score"], reverse=True)
-        top_notes = sorted_notes[:3]
-        notes_text = "\n".join([n["content"] for n in top_notes])
-
-        if not notes_text:
-            notes_text = (
-                "No relevant notes found. Use previous conversation if helpful."
-            )
-
-        session_history = list(
-            history_collection.find(
-                {"session_id": q.session_id, "user_id": user_id},
-                {"_id": 0, "role": 1, "content": 1},
-            )
-        )
-
-        messages = []
-        messages.append(
-            {
-                "role": "system",
-                "content": "You are a helpful assistant. Answer questions using the notes provided in the context. If the notes don't contain the answer, say clearly so. Be concise and informative.",
-            }
-        )
-        for msg in session_history:
-            messages.append({"role": msg["role"], "content": msg["content"]})
-        messages.append(
-            {
-                "role": "user",
-                "content": f"context:\n{notes_text}\n\nQuestion: {q.question}",
-            }
-        )
-
-        # fixed: stream_generator is now a closure — it has access to messages
-        # and accumulates full_answer locally, then saves to DB after stream ends
-        def stream_generator():
-            full_answer = ""  # local, not global — safe for concurrent requests
-            try:
-                response = client_ai.chat.completions.create(
-                    model=MODEL, messages=messages, stream=True
-                )
-                for chunk in response:
-                    content = chunk.choices[0].delta.content
-                    if content:
-                        full_answer += content
-                        yield content
-            finally:
-                # fixed: save AFTER stream completes, with actual content
-                if full_answer:
-                    history_collection.insert_many(
-                        [
-                            {
-                                "session_id": q.session_id,
-                                "user_id": user_id,
-                                "role": "user",
-                                "content": q.question,
-                            },
-                            {
-                                "session_id": q.session_id,
-                                "user_id": user_id,
-                                "role": "assistant",
-                                "content": full_answer,
-                            },
-                        ]
-                    )
-
-        return StreamingResponse(stream_generator(), media_type="text/plain")
-
+        test_embedding = get_embedding("test")
+        return {
+            "embedding_length": len(test_embedding),
+            "first_value": test_embedding[0],
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Something went wrong: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Embedding failed: {str(e)}")
 
 
 @app.delete("/history/{session_id}")
