@@ -24,7 +24,7 @@ if not HF_TOKEN:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://ai-second-brain-frontend.vercel.app"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
