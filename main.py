@@ -22,7 +22,10 @@ if not os.getenv("COHERE_API_KEY"):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://ai-second-brain-frontend.vercel.app/",
+        "https://ai-second-brain-frontend.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
