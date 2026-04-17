@@ -12,6 +12,7 @@ import requests
 import time
 from dotenv import load_dotenv
 from groq import Groq
+from bson import ObjectId
 
 load_dotenv()
 
@@ -161,6 +162,7 @@ def read_root():
 @app.post("/add-note")
 def add_note(note: Note, user_id: str = Depends(get_current_user)):
     try:
+        user_id = ObjectId(user_id)
         embedding = get_embedding(note.content)
         notes_collection.insert_one(
             {
@@ -179,6 +181,7 @@ def ask_question(q: Question, user_id: str = Depends(get_current_user)):
     try:
 
         query_embedding = get_embedding(q.question)
+        user_id = ObjectId(user_id)
 
         vector_results = list(
             notes_collection.aggregate(
@@ -250,10 +253,8 @@ def ask_question(q: Question, user_id: str = Depends(get_current_user)):
             }
         )
 
-        # fixed: stream_generator is now a closure — it has access to messages
-        # and accumulates full_answer locally, then saves to DB after stream ends
         def stream_generator():
-            full_answer = ""  # local, not global — safe for concurrent requests
+            full_answer = ""
             try:
                 response = client_ai.chat.completions.create(
                     model=MODEL, messages=messages, stream=True
