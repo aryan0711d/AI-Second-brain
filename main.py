@@ -8,21 +8,17 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 import os
-import requests
-import time
+import cohere
 from dotenv import load_dotenv
 from groq import Groq
-from bson import ObjectId
 
 load_dotenv()
 
 app = FastAPI()
 
-HF_TOKEN = os.getenv("HF_TOKEN")
-HF_URL = "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2"
-
-if not HF_TOKEN:
-    raise ValueError("HF_TOKEN not found in .env")
+cohere_client = cohere.Client(os.getenv("COHERE_API_KEY"))
+if not os.getenv("COHERE_API_KEY"):
+    raise ValueError("COHERE_API_KEY not found in .env")
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,33 +30,10 @@ app.add_middleware(
 
 
 def get_embedding(text: str) -> list:
-    for attempt in range(3):
-        response = requests.post(
-            HF_URL,
-            headers={"Authorization": f"Bearer {HF_TOKEN}"},
-            json={"inputs": text},
-            timeout=30,
-        )
-
-        if response.status_code == 503:
-            time.sleep(5)
-            continue
-
-        if not response.text.strip():
-            time.sleep(5)
-            continue
-
-        data = response.json()
-
-        if isinstance(data, dict) and "error" in data:
-            if "loading" in data["error"].lower():
-                time.sleep(5)
-                continue
-            raise Exception(f"Hugging Face API error: {data['error']}")
-
-        return data[0] if isinstance(data[0], list) else data
-
-    raise Exception("Hugging Face model failed after 3 retries")
+    response = cohere_client.embed(
+        texts=[text], model="embed-english-light-v3.0", input_type="search_query"
+    )
+    return response.embeddings[0]
 
 
 groq_key = os.getenv("GROQ_API_KEY")
@@ -71,7 +44,7 @@ client_ai = Groq(api_key=groq_key)
 
 MODEL = os.getenv("MODEL_NAME")
 if not MODEL:
-    raise ValueError("MODEL_NAME not found in .env")  # fixed: was silently None
+    raise ValueError("MODEL_NAME not found in .env")
 
 mongo_url = os.getenv("MONGO_URL")
 if not mongo_url:
@@ -162,7 +135,6 @@ def read_root():
 @app.post("/add-note")
 def add_note(note: Note, user_id: str = Depends(get_current_user)):
     try:
-        user_id = ObjectId(user_id)
         embedding = get_embedding(note.content)
         notes_collection.insert_one(
             {
@@ -179,9 +151,7 @@ def add_note(note: Note, user_id: str = Depends(get_current_user)):
 @app.post("/ask")
 def ask_question(q: Question, user_id: str = Depends(get_current_user)):
     try:
-
         query_embedding = get_embedding(q.question)
-        user_id = ObjectId(user_id)
 
         vector_results = list(
             notes_collection.aggregate(
@@ -265,7 +235,6 @@ def ask_question(q: Question, user_id: str = Depends(get_current_user)):
                         full_answer += content
                         yield content
             finally:
-                # fixed: save AFTER stream completes, with actual content
                 if full_answer:
                     history_collection.insert_many(
                         [
